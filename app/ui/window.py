@@ -12,6 +12,7 @@ from app.tools.productivity import ProductivityTool
 from app.tools.media import MediaTool
 from app.tools.text_tools import TextTools
 from app.tools.pc_monitor import PCMonitorTool
+from app.tools.windows_tools import WindowsTools
 
 
 class UtilityApp:
@@ -42,7 +43,10 @@ class UtilityApp:
 
     def save_window_state(self, tool_name, window):
         os.makedirs(os.path.dirname(self.STATE_FILE), exist_ok=True)
-        self.window_state[tool_name] = {"geometry": window.get_geometry(), "always_on_top": window.always_on_top.get()}
+        self.window_state[tool_name] = {
+            "geometry": window.get_geometry(),
+            "always_on_top": window.always_on_top.get(),
+        }
         try:
             with open(self.STATE_FILE, "w", encoding="utf-8") as file:
                 json.dump(self.window_state, file, indent=2)
@@ -60,6 +64,7 @@ class UtilityApp:
                 window.lift()
                 window.focus_force()
                 return
+
         state = self.window_state.get(tool_name, {})
         window = FloatingWindow(
             self.root,
@@ -78,6 +83,7 @@ class UtilityApp:
             "File Tools": FileTools,
             "Calculators": CalculatorsTool,
             "Utilities": TextTools,
+            "Windows Tools": WindowsTools,
             "Network": NetworkTool,
             "Media": MediaTool,
         }
@@ -87,6 +93,7 @@ class UtilityApp:
             tool.frame.pack(fill="both", expand=True)
             window.tool = tool
             return
+
         tk.Label(window.content, text=tool_name, font=("Segoe UI", 20, "bold"), bg="white", fg="#202020").pack(anchor="w", padx=25, pady=(25, 5))
         tk.Label(window.content, text="This module is planned and ready for expansion.", font=("Segoe UI", 10), bg="white", fg="#666666").pack(anchor="w", padx=25)
 
