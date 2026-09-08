@@ -16,14 +16,12 @@ class UtilityApp:
         self.root.geometry("1100x700")
         self.root.minsize(850, 550)
         self.root.configure(bg="#f2f2f2")
+        self.root.protocol("WM_DELETE_WINDOW", self.close_application)
 
         self.floating_windows = {}
         self.window_state = self.load_window_state()
 
-        self.sidebar = Sidebar(
-            self.root,
-            on_page_change=self.open_tool
-        )
+        self.sidebar = Sidebar(self.root, on_page_change=self.open_tool)
         self.sidebar.pack(side="left", fill="y")
 
         self.content = tk.Frame(self.root, bg="#f2f2f2")
@@ -45,7 +43,6 @@ class UtilityApp:
             "geometry": window.get_geometry(),
             "always_on_top": window.always_on_top.get(),
         }
-
         try:
             with open(self.STATE_FILE, "w", encoding="utf-8") as file:
                 json.dump(self.window_state, file, indent=2)
@@ -66,48 +63,48 @@ class UtilityApp:
                 return
 
         state = self.window_state.get(tool_name, {})
-        geometry = state.get("geometry", "400x300")
-        always_on_top = state.get("always_on_top", False)
-
         window = FloatingWindow(
             self.root,
             title=tool_name,
-            on_close=lambda closed_window, name=tool_name: self.close_tool(
-                name, closed_window
-            ),
-            geometry=geometry,
-            always_on_top=always_on_top,
+            on_close=lambda closed_window, name=tool_name: self.close_tool(name, closed_window),
+            geometry=state.get("geometry", "400x300"),
+            always_on_top=state.get("always_on_top", False),
         )
 
         self.floating_windows[tool_name] = window
         self.create_tool_content(window, tool_name)
 
     def create_tool_content(self, window, tool_name):
-        title = tk.Label(
+        tk.Label(
             window.content,
             text=tool_name,
             font=("Segoe UI", 20, "bold"),
             bg="white",
             fg="#202020",
-        )
-        title.pack(anchor="w", padx=25, pady=(25, 5))
+        ).pack(anchor="w", padx=25, pady=(25, 5))
 
-        description = tk.Label(
+        tk.Label(
             window.content,
             text="Utility panel is ready.",
             font=("Segoe UI", 10),
             bg="white",
             fg="#666666",
-        )
-        description.pack(anchor="w", padx=25)
+        ).pack(anchor="w", padx=25)
 
     def close_tool(self, tool_name, window):
         self.save_window_state(tool_name, window)
         self.floating_windows.pop(tool_name, None)
 
     def show_dashboard(self):
-        self.dashboard.lift()
+        self.root.deiconify()
         self.root.lift()
+        self.dashboard.lift()
+
+    def close_application(self):
+        for tool_name, window in list(self.floating_windows.items()):
+            if window.winfo_exists():
+                self.save_window_state(tool_name, window)
+        self.root.destroy()
 
     def run(self):
         self.root.mainloop()
