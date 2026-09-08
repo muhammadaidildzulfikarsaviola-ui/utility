@@ -1,10 +1,1 @@
-{
-  "PC Monitor": {
-    "geometry": "400x300+100+100",
-    "always_on_top": false
-  },
-  "Productivity": {
-    "geometry": "400x300+150+150",
-    "always_on_top": false
-  }
-}
+{}
