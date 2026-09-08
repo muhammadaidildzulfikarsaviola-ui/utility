@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 try:
@@ -29,15 +29,13 @@ class ActivityTracker:
     def _initialize(self):
         with self._connect() as connection:
             connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS activity_sessions (
+                """CREATE TABLE IF NOT EXISTS activity_sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     app_name TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     ended_at TEXT,
                     duration_seconds INTEGER DEFAULT 0
-                )
-                """
+                )"""
             )
             connection.commit()
 
@@ -49,6 +47,7 @@ class ActivityTracker:
     def get_idle_seconds():
         if not ActivityTracker.is_supported():
             return 0
+
         class LASTINPUTINFO(ctypes.Structure):
             _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
 
@@ -56,8 +55,7 @@ class ActivityTracker:
         info.cbSize = ctypes.sizeof(LASTINPUTINFO)
         if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
             return 0
-        tick = ctypes.windll.kernel32.GetTickCount64()
-        return max(0, (tick - info.dwTime) / 1000.0)
+        return max(0, (ctypes.windll.kernel32.GetTickCount64() - info.dwTime) / 1000.0)
 
     @staticmethod
     def get_foreground_app():
@@ -69,9 +67,7 @@ class ActivityTracker:
         pid = ctypes.c_ulong()
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         try:
-            process = psutil.Process(pid.value)
-            name = process.name()
-            return Path(name).stem or name
+            return Path(psutil.Process(pid.value).name()).stem
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             return None
 
@@ -85,24 +81,21 @@ class ActivityTracker:
                 (app_name, started_at),
             )
             connection.commit()
-            self.current_session_id = cursor.lastrowid
-            self.current_app = app_name
-            return self.current_session_id
+        self.current_session_id = cursor.lastrowid
+        self.current_app = app_name
+        return self.current_session_id
 
     def end_session(self, session_id=None):
         session_id = session_id or self.current_session_id
         if session_id is None:
             return False
-
         ended_at = datetime.now()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT started_at FROM activity_sessions WHERE id = ?",
-                (session_id,),
+                "SELECT started_at FROM activity_sessions WHERE id = ?", (session_id,)
             ).fetchone()
             if row is None:
                 return False
-
             started_at = datetime.fromisoformat(row[0])
             duration = max(0, int((ended_at - started_at).total_seconds()))
             connection.execute(
@@ -110,20 +103,17 @@ class ActivityTracker:
                 (ended_at.isoformat(timespec="seconds"), duration, session_id),
             )
             connection.commit()
-
         if session_id == self.current_session_id:
             self.current_session_id = None
             self.current_app = None
         return True
 
     def poll(self):
-        """Update the current session. Returns the active app name, or None while idle."""
+        """Update the current session and return the active app name."""
         if not self.is_supported():
             return None
-
         idle = self.get_idle_seconds()
         app_name = None if idle >= self.idle_threshold else self.get_foreground_app()
-
         if app_name != self.current_app:
             if self.current_session_id is not None:
                 self.end_session()
@@ -135,16 +125,14 @@ class ActivityTracker:
         today = datetime.now().date().isoformat()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT COALESCE(SUM(duration_seconds), 0) FROM activity_sessions "
-                "WHERE date(started_at) = ?",
+                "SELECT COALESCE(SUM(duration_seconds), 0) FROM activity_sessions WHERE date(started_at) = ?",
                 (today,),
             ).fetchone()
         total = int(row[0] or 0)
         if self.current_session_id:
             with self._connect() as connection:
                 row = connection.execute(
-                    "SELECT started_at FROM activity_sessions WHERE id = ?",
-                    (self.current_session_id,),
+                    "SELECT started_at FROM activity_sessions WHERE id = ?", (self.current_session_id,)
                 ).fetchone()
             if row:
                 total += max(0, int(time.time() - datetime.fromisoformat(row[0]).timestamp()))
@@ -154,29 +142,39 @@ class ActivityTracker:
         today = datetime.now().date().isoformat()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT COUNT(*) FROM activity_sessions WHERE date(started_at) = ?",
-                (today,),
+                "SELECT COUNT(*) FROM activity_sessions WHERE date(started_at) = ?", (today,)
             ).fetchone()
         return int(row[0] or 0)
 
     def get_top_app(self):
         today = datetime.now().date().isoformat()
         with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT app_name, SUM(duration_seconds) AS seconds "
-                "FROM activity_sessions WHERE date(started_at) = ? "
-                "GROUP BY app_name ORDER BY seconds DESC LIMIT 1",
+            row = connection.execute(
+                "SELECT app_name, SUM(duration_seconds) AS seconds FROM activity_sessions "
+                "WHERE date(started_at) = ? GROUP BY app_name ORDER BY seconds DESC LIMIT 1",
                 (today,),
             ).fetchone()
-        return (rows[0], int(rows[1])) if rows else (None, 0)
+        return (row[0], int(row[1])) if row else (None, 0)
 
     def get_recent_apps(self, limit=5):
         with self._connect() as connection:
             return connection.execute(
-                "SELECT app_name, SUM(duration_seconds) AS seconds "
-                "FROM activity_sessions GROUP BY app_name ORDER BY seconds DESC LIMIT ?",
-                (limit,),
+                "SELECT app_name, SUM(duration_seconds) AS seconds FROM activity_sessions "
+                "GROUP BY app_name ORDER BY seconds DESC LIMIT ?", (limit,)
             ).fetchall()
+
+    def get_daily_usage(self, days=7):
+        today = datetime.now().date()
+        result = []
+        with self._connect() as connection:
+            for offset in range(days - 1, -1, -1):
+                day = today - timedelta(days=offset)
+                row = connection.execute(
+                    "SELECT COALESCE(SUM(duration_seconds), 0) FROM activity_sessions WHERE date(started_at) = ?",
+                    (day.isoformat(),),
+                ).fetchone()
+                result.append((day.strftime("%a"), int(row[0] or 0)))
+        return result
 
     @staticmethod
     def format_duration(seconds):
